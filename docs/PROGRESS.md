@@ -42,10 +42,10 @@ why). **Branch:** `phase-0/foundation`.
   settings (profile fields), Audit log viewer (filterable, paginated).
 - Seed script: demo organization + "Main Branch", full permission catalog,
   11 system roles with their default permissions, one demo user per role
-  + a super admin from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`. Idempotent
-  (safe to re-run).
+  - a super admin from `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`. Idempotent
+    (safe to re-run).
 - Tests: 13 Vitest unit/integration tests (permission checks — allowed
-  *and* prohibited, across several roles; org/branch scoping; audit log
+  _and_ prohibited, across several roles; org/branch scoping; audit log
   isolation and filtering) against a real `gymos_test` Postgres database;
   1 Playwright smoke test (login → dashboard placeholder → logout).
 - GitHub Actions CI: install → lint → typecheck → format → unit tests →
@@ -87,3 +87,25 @@ why). **Branch:** `phase-0/foundation`.
 - The branch switcher persists the chosen branch in a plain (non-httpOnly)
   cookie for convenience; nothing sensitive is stored there (just a branch
   id, re-validated server-side on every write via `assertBranchAccess`).
+
+## Session 2 — Phase 0 review fixes
+
+- **Fixed:** `GET /api/v1/approval-requests` had no permission check at
+  all — any authenticated user could list every `ApprovalRequest` in the
+  organization, including sensitive payloads (refund amounts, stock
+  adjustments, manual overrides). Added `requirePermission(ctx,
+"admin.approve")` before the listing call, with a comment noting that
+  once module-specific approval requests exist (Phase 1+), this should
+  also accept the relevant module's own `.approve` key. Added a
+  route-level regression test (`tests/unit/approval-requests-route.test.ts`)
+  covering both the 403 (no permission) and 200 (has permission) cases.
+- **Fixed CI:** `pnpm typecheck` (`tsc --noEmit`) relied on `.next/types`
+  (for ambient types like `LayoutProps`) existing from a prior `next dev`/
+  `next build`, which is true on a developer machine that's already run
+  the app but not in a clean CI checkout — CI failed with `Cannot find
+name 'LayoutProps'`. `typecheck` now runs `next typegen` first (generates
+  route/layout types without a full build), making it self-contained.
+  Also fixed a `pnpm/action-setup` CI failure (duplicate pnpm version:
+  the workflow's explicit `version: 10` input conflicted with
+  `packageManager: "pnpm@10.28.0"` in `package.json`) by dropping the
+  explicit input.

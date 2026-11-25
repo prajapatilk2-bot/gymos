@@ -85,7 +85,7 @@ Better Auth owns authentication (`src/server/auth/auth.ts`):
   declared in Better Auth's config so `auth.api.getSession()` returns them
   directly, and mirrored as real Prisma columns since Better Auth's Prisma
   adapter reads/writes this same `User` table.
-- **The `admin` plugin** is enabled *only* to get
+- **The `admin` plugin** is enabled _only_ to get
   `auth.api.createUser` / `auth.api.setUserPassword` as callable,
   session-aware server APIs (so admin-created accounts never log the
   acting admin out of their own session, and password hashing always goes
@@ -94,7 +94,7 @@ Better Auth owns authentication (`src/server/auth/auth.ts`):
   field is fixed to `"admin"` at creation, so the plugin's internal
   "is this caller allowed" check always passes; the actual decision is
   GymOS's own `requirePermission(ctx, "admin.create" | "admin.edit")`
-  called *before* either of those APIs is invoked. Two independent,
+  called _before_ either of those APIs is invoked. Two independent,
   purpose-built authorization systems would be worse than one used twice
   for a single, deliberate reason.
 - **Strong password rules** (10+ chars, upper/lower/digit/symbol) are
@@ -105,7 +105,7 @@ Better Auth owns authentication (`src/server/auth/auth.ts`):
   success/failure + reason) is written by `/api/v1/auth/login`, a thin
   wrapper around `auth.api.signInEmail` — not by Better Auth's own
   endpoint directly, since that's the only way to reliably capture
-  *failed* attempts (unknown email, deactivated account, wrong password)
+  _failed_ attempts (unknown email, deactivated account, wrong password)
   with a reason, before any password check even runs for a deactivated
   user.
 - **Inactivity auto-logout** compares `now - session.updatedAt` (Better
@@ -127,7 +127,7 @@ registry × six actions (`view, create, edit, delete, export, approve`) —
 `Permission` table is a global catalog (not organization-scoped), seeded
 once.
 
-**Roles** (`Role` table) *are* organization-scoped: the 11 W1 default roles
+**Roles** (`Role` table) _are_ organization-scoped: the 11 W1 default roles
 are seeded per organization from `default-roles.ts`, so every organization
 gets its own editable copy and can also create fully custom roles
 (`isSystem: false`, deletable; system roles cannot be deleted, only have
@@ -143,8 +143,8 @@ user can hold several `UserRole` rows (e.g. "Trainer" at Branch A and
 (`src/server/modules/permissions/service.ts`):
 
 ```ts
-await requirePermission(ctx, "members.create");                         // anywhere
-await requirePermission(ctx, "members.create", { branchId });            // that branch or org-wide
+await requirePermission(ctx, "members.create"); // anywhere
+await requirePermission(ctx, "members.create", { branchId }); // that branch or org-wide
 await requirePermission(ctx, ["members.view", "sensitive.health.view"]); // both required
 ```
 
@@ -162,19 +162,19 @@ Access levels used below: **Full** = view/create/edit/delete/export/approve
 Full detail (including which sensitive gates each role gets) is in
 `src/server/modules/permissions/default-roles.ts`; this table is a summary.
 
-| Role | Scope | Typical modules |
-|---|---|---|
-| **Super Admin** | All orgs the account can see | Full on every module (A–X), all sensitive data |
-| **Owner** | Org-wide | Full on every module except W (Admin Panel, which is view-only even for them — role/permission editing is Super Admin's job); sensitive: health view, financial edit, payroll edit |
-| **General Manager** | Org-wide | Manage+A on B,D,E,F,G,J,Q · Manage on C,H,I,K,L,M,N,V · View on A,O,P,T,W; sensitive: all three view |
-| **Branch Manager** | One branch (`UserRole.branchId` set) | Same shape as GM minus V; sensitive: health+financial view |
-| **Receptionist** | One branch | Manage on B,C · Edit on D,E,F,G · Edit on O (take payments) · View on A,N,T; sensitive: health view |
-| **Trainer** | One branch | Manage on H,I · Edit on M · View on A,C,G,J,K,T; sensitive: health edit |
-| **Accountant** | Org-wide | Full on O (billing/finance) · Manage on P (payroll) · View on A,C,D,T; sensitive: financial+payroll edit |
-| **Salesperson** | Org-wide | Manage on B,N · Edit on C,D · View on A,T |
-| **Store Manager** | Org-wide | Full on F (retail/canteen) · Manage on G · View on A,C,O,T; sensitive: financial view |
-| **Housekeeping** | One branch | Edit on Q (fault reporting) · Manage on R |
-| **Security** | One branch | Manage on R · View on E |
+| Role                | Scope                                | Typical modules                                                                                                                                                                    |
+| ------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Super Admin**     | All orgs the account can see         | Full on every module (A–X), all sensitive data                                                                                                                                     |
+| **Owner**           | Org-wide                             | Full on every module except W (Admin Panel, which is view-only even for them — role/permission editing is Super Admin's job); sensitive: health view, financial edit, payroll edit |
+| **General Manager** | Org-wide                             | Manage+A on B,D,E,F,G,J,Q · Manage on C,H,I,K,L,M,N,V · View on A,O,P,T,W; sensitive: all three view                                                                               |
+| **Branch Manager**  | One branch (`UserRole.branchId` set) | Same shape as GM minus V; sensitive: health+financial view                                                                                                                         |
+| **Receptionist**    | One branch                           | Manage on B,C · Edit on D,E,F,G · Edit on O (take payments) · View on A,N,T; sensitive: health view                                                                                |
+| **Trainer**         | One branch                           | Manage on H,I · Edit on M · View on A,C,G,J,K,T; sensitive: health edit                                                                                                            |
+| **Accountant**      | Org-wide                             | Full on O (billing/finance) · Manage on P (payroll) · View on A,C,D,T; sensitive: financial+payroll edit                                                                           |
+| **Salesperson**     | Org-wide                             | Manage on B,N · Edit on C,D · View on A,T                                                                                                                                          |
+| **Store Manager**   | Org-wide                             | Full on F (retail/canteen) · Manage on G · View on A,C,O,T; sensitive: financial view                                                                                              |
+| **Housekeeping**    | One branch                           | Edit on Q (fault reporting) · Manage on R                                                                                                                                          |
+| **Security**        | One branch                           | Manage on R · View on E                                                                                                                                                            |
 
 ## Audit & approval design
 
@@ -191,7 +191,7 @@ function makes it unconditional.
 generic "needs sign-off" workflow: `createApprovalRequest` records a
 `pending` row with a `payload` (the proposed change, as JSON) and a
 `reason`; `decideApprovalRequest` requires the decider to hold the right
-`<module>.approve` permission (checked by the *caller*, since the right
+`<module>.approve` permission (checked by the _caller_, since the right
 key depends on what's being approved) and refuses self-approval. Module
 services in Phase 1+ that need "refund requires sign-off" etc. create a
 request here instead of applying the change immediately, and apply it only

@@ -1,7 +1,7 @@
 # Decision log
 
 Short entries, newest last. Record a decision here when a future session
-would otherwise have to re-derive *why* something is the way it is.
+would otherwise have to re-derive _why_ something is the way it is.
 
 ## Phase 0
 
@@ -15,7 +15,7 @@ products in one history. Created `prajapatilk2-bot/gymos` instead.
 at the time.** The brief asked for latest stable versions. `create-next-app`
 pulled Next 16 / React 19 / Tailwind v4 by default; `prisma` resolved to a
 7.x release-candidate by default (`8.0.0-rc.35`) which was pinned down to
-the latest *stable* 7.x (`7.10.1`) instead, since "latest stable" was
+the latest _stable_ 7.x (`7.10.1`) instead, since "latest stable" was
 explicit in the brief.
 
 **Prisma 7's new config shape.** Prisma 7 removed `datasource.url` from
@@ -49,7 +49,7 @@ creation; the actual authorization decision is made by GymOS's own
 one piece of Phase 0 most likely to look surprising on a first read.
 
 **Custom `/api/v1/auth/login` wrapper instead of Better Auth's sign-in
-endpoint directly.** Needed to log *every* login attempt (success and
+endpoint directly.** Needed to log _every_ login attempt (success and
 failure, with a reason) and to block deactivated users before a password
 check runs. Better Auth's own endpoint only reliably signals success.
 Session/sign-out/etc. still go through the standard Better Auth catch-all

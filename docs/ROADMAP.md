@@ -6,8 +6,7 @@ merged — not when a page merely exists as a placeholder.
 
 ## Phase 0 — Foundation (W1–W4 basics, Y)
 
-- [x] Project scaffold: Next.js (App Router) + TypeScript strict + Tailwind
-      + pnpm; scripts for dev/build/lint/typecheck/test/test:e2e/db:migrate/db:seed
+- [x] Project scaffold: Next.js (App Router) + TypeScript strict + Tailwind + pnpm; scripts for dev/build/lint/typecheck/test/test:e2e/db:migrate/db:seed
 - [x] PostgreSQL + Prisma, migrations committed
 - [x] Better Auth email/password login for staff (W3 basics): sessions,
       strong password rules, inactivity auto-logout (configurable), login
@@ -15,7 +14,7 @@ merged — not when a page merely exists as a placeholder.
 - [x] RBAC (W1, W2): permission registry for all 24 modules × 6 actions +
       sensitive-data gates; 11 default system roles with a documented
       permission matrix; custom roles; server-side `requirePermission` +
-      branch-scope helpers; tests for allowed *and* prohibited actions
+      branch-scope helpers; tests for allowed _and_ prohibited actions
 - [x] App shell: login page, responsive collapsible sidebar (24 modules,
       grouped, permission-filtered), branch switcher, user menu/logout,
       light/dark theme; placeholder page per not-yet-built module

@@ -67,7 +67,7 @@ These are non-negotiable — every future module must follow them.
    go through `src/server/modules/approvals/service.ts`
    (`createApprovalRequest` → pending → `decideApprovalRequest`) instead of
    being applied immediately. The caller must `requirePermission(ctx,
-   "<module>.approve")` before calling `decideApprovalRequest`.
+"<module>.approve")` before calling `decideApprovalRequest`.
 9. **Server-side permission checks, always.** Every service function that
    reads or writes data calls `requirePermission(ctx, "<module>.<action>")`
    (or `hasPermission` where a boolean is needed) from
@@ -161,18 +161,18 @@ pnpm db:seed                    # demo org, 1 branch, 11 roles, 1 user per role 
 pnpm dev
 ```
 
-| Command | What it does |
-|---|---|
-| `pnpm dev` | Next.js dev server (Turbopack) |
-| `pnpm build` / `pnpm start` | production build / serve |
-| `pnpm lint` | ESLint |
-| `pnpm typecheck` | `tsc --noEmit` |
-| `pnpm format` / `pnpm format:write` | Prettier check / write |
-| `pnpm test` | Vitest unit/integration tests (needs `.env.test` → a `gymos_test` Postgres DB; see `.env.test.example`) |
-| `pnpm test:e2e` | Playwright smoke test against a running dev server |
-| `pnpm db:migrate` | `prisma migrate dev` |
-| `pnpm db:seed` | `prisma/seed.ts` |
-| `pnpm db:studio` | Prisma Studio |
+| Command                             | What it does                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                          | Next.js dev server (Turbopack)                                                                          |
+| `pnpm build` / `pnpm start`         | production build / serve                                                                                |
+| `pnpm lint`                         | ESLint                                                                                                  |
+| `pnpm typecheck`                    | `tsc --noEmit`                                                                                          |
+| `pnpm format` / `pnpm format:write` | Prettier check / write                                                                                  |
+| `pnpm test`                         | Vitest unit/integration tests (needs `.env.test` → a `gymos_test` Postgres DB; see `.env.test.example`) |
+| `pnpm test:e2e`                     | Playwright smoke test against a running dev server                                                      |
+| `pnpm db:migrate`                   | `prisma migrate dev`                                                                                    |
+| `pnpm db:seed`                      | `prisma/seed.ts`                                                                                        |
+| `pnpm db:studio`                    | Prisma Studio                                                                                           |
 
 ### Adding a new module (Phase 1+)
 
