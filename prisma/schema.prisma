@@ -1,0 +1,397 @@
+// GymOS — Phase 0 foundation schema.
+// Requirement IDs referenced in comments map to docs/SPEC.md.
+//
+// Conventions (see CLAUDE.md / docs/ARCHITECTURE.md):
+// - Every business table has organizationId; branch-specific tables also have branchId.
+// - Standard columns: id (cuid), createdAt, updatedAt, createdById, updatedById, deletedAt.
+//   Exceptions: AuditLog and LoginHistory are append-only logs and are never updated or
+//   soft-deleted, so they only carry createdAt.
+// - Money (introduced in later phases) is stored as integer paise, never float.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Better Auth core tables (W3). Field shapes follow the Better Auth Prisma
+// adapter's expected schema plus our own additional fields on `User`.
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // --- GymOS staff profile fields (W1) ---
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  employeeCode       String?
+  phone              String?
+  isActive           Boolean      @default(true)
+  mustChangePassword Boolean      @default(false)
+  lastLoginAt        DateTime?
+  deletedAt          DateTime?
+  createdById        String?
+  updatedById        String?
+
+  // --- Better Auth "admin" plugin fields ---
+  // NOT used for GymOS authorization (that is entirely Role / Permission /
+  // UserRole, enforced via requirePermission()). `role` is fixed to "admin"
+  // for every account at creation purely so the plugin's own internal
+  // "is this caller an admin" gate always passes for admin.api.createUser /
+  // setUserPassword, which our own requirePermission() check already
+  // guards before those are ever called. See docs/ARCHITECTURE.md.
+  role       String?   @default("admin")
+  banned     Boolean?  @default(false)
+  banReason  String?
+  banExpires DateTime?
+
+  sessions                 Session[]
+  accounts                 Account[]
+  userRoles                UserRole[]        @relation("UserRoleUser")
+  assignedUserRoles        UserRole[]        @relation("UserRoleAssignedBy")
+  loginHistory             LoginHistory[]
+  approvalRequestsCreated  ApprovalRequest[] @relation("ApprovalRequestedBy")
+  approvalRequestsApproved ApprovalRequest[] @relation("ApprovalApprovedBy")
+  auditLogs                AuditLog[]        @relation("AuditLogActor")
+
+  @@index([organizationId])
+  @@map("user")
+}
+
+model Session {
+  id             String   @id @default(cuid())
+  expiresAt      DateTime
+  token          String   @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ipAddress      String?
+  userAgent      String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  impersonatedBy String? // Better Auth "admin" plugin; unused by GymOS today.
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime? @default(now())
+  updatedAt  DateTime? @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ---------------------------------------------------------------------------
+// Organization / Branch (Y2 branch-ready architecture, U1)
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id   String @id @default(cuid())
+  name String
+  slug String @unique
+
+  logoUrl                 String?
+  address                 String?
+  phone                   String?
+  email                   String?
+  gstin                   String?
+  financialYearStartMonth Int     @default(4) // 1-12, default April (India FY)
+  timeZone                String  @default("Asia/Kolkata")
+  dateFormat              String  @default("DD-MM-YYYY")
+  currency                String  @default("INR")
+
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  branches         Branch[]
+  users            User[]
+  roles            Role[]
+  settings         OrganizationSetting[]
+  userRoles        UserRole[]
+  auditLogs        AuditLog[]
+  approvalRequests ApprovalRequest[]
+
+  @@map("organization")
+}
+
+model Branch {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name    String
+  code    String
+  address String?
+  phone   String?
+  email   String?
+
+  operatingHoursStart String? // "HH:mm"
+  operatingHoursEnd   String? // "HH:mm"
+  timeZone            String? // overrides organization.timeZone when set
+
+  isDefault   Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  userRoles        UserRole[]
+  auditLogs        AuditLog[]
+  approvalRequests ApprovalRequest[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+  @@map("branch")
+}
+
+// Extensible key/value settings store (W4). Profile-level fields that every
+// organization always has (name, GSTIN, timezone, ...) live on Organization
+// itself; settings that are optional, module-specific, or likely to grow in
+// later phases (e.g. session-inactivity timeout, password policy overrides)
+// live here so they never require a schema migration to add.
+model OrganizationSetting {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  key   String
+  value Json
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  updatedById String?
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("organization_setting")
+}
+
+// ---------------------------------------------------------------------------
+// RBAC (W1, W2)
+// ---------------------------------------------------------------------------
+
+enum PermissionAction {
+  view
+  create
+  edit
+  delete
+  export
+  approve
+}
+
+enum SensitiveCategory {
+  health
+  financial
+  payroll
+}
+
+// Global permission catalog — one row per "<module>.<action>" key, seeded
+// once from src/server/modules/permissions/registry.ts. Not organization-scoped.
+model Permission {
+  id                String             @id @default(cuid())
+  key               String             @unique // e.g. "members.create"
+  module            String // module id, e.g. "C" (see docs/SPEC.md Document Map)
+  action            PermissionAction
+  isSensitive       Boolean            @default(false)
+  sensitiveCategory SensitiveCategory?
+  description       String?
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permission")
+}
+
+model Role {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  key         String // slug, e.g. "branch_manager"
+  name        String
+  description String?
+  isSystem    Boolean @default(false) // one of the W1 default roles; cannot be deleted
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+  @@map("role")
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@map("role_permission")
+}
+
+// A user's role assignment. branchId = null means the role applies across
+// every branch in the organization; otherwise it is scoped to that branch.
+model UserRole {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  roleId         String
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id])
+
+  createdAt   DateTime @default(now())
+  createdById String?
+  createdBy   User?    @relation("UserRoleAssignedBy", fields: [createdById], references: [id])
+
+  @@unique([userId, roleId, branchId])
+  @@index([organizationId])
+  @@index([userId])
+  @@map("user_role")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log (W3) — append-only, never updated or soft-deleted.
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id])
+  userId         String?
+  user           User?        @relation("AuditLogActor", fields: [userId], references: [id])
+
+  action     String // "create" | "update" | "delete" | "approve" | "reject" | "login" | "logout" | ...
+  entityType String // e.g. "User", "Role", "Branch"
+  entityId   String?
+  before     Json?
+  after      Json?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([organizationId, entityType, entityId])
+  @@index([organizationId, createdAt])
+  @@index([userId])
+  @@map("audit_log")
+}
+
+// Login attempt history (W3) — append-only.
+model LoginHistory {
+  id             String  @id @default(cuid())
+  organizationId String?
+  userId         String?
+  user           User?   @relation(fields: [userId], references: [id])
+
+  email     String
+  success   Boolean
+  reason    String? // e.g. "invalid_password", "user_inactive", "unknown_email"
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([organizationId, createdAt])
+  @@map("login_history")
+}
+
+// ---------------------------------------------------------------------------
+// Approval workflow (W2) — generic across modules.
+// ---------------------------------------------------------------------------
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+model ApprovalRequest {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  branchId       String?
+  branch         Branch?      @relation(fields: [branchId], references: [id])
+
+  requestType String // e.g. "refund", "stock_adjustment", "manual_attendance_override"
+  entityType  String?
+  entityId    String?
+  payload     Json // the proposed change / action data
+  reason      String? // requester's justification
+
+  status        ApprovalStatus @default(pending)
+  requestedById String
+  requestedBy   User           @relation("ApprovalRequestedBy", fields: [requestedById], references: [id])
+  approverId    String?
+  approver      User?          @relation("ApprovalApprovedBy", fields: [approverId], references: [id])
+  decisionNote  String?
+  decidedAt     DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  @@index([organizationId, status])
+  @@index([branchId])
+  @@map("approval_request")
+}
