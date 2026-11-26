@@ -47,11 +47,27 @@ merged — not when a page merely exists as a placeholder.
       guest/trial passes as lightweight non-Member records; printable
       member ID card. See `docs/PROGRESS.md` Session 4 and
       `docs/DECISIONS.md` for what's deferred to later phases.
-- [ ] 1.2 Packages & membership lifecycle (D1–D3)
+- [x] 1.2 Packages & membership lifecycle (D1–D3) + "Membership & Payments"
+      checklist row: package types/configuration — duration unit+value,
+      category, trial/limited-visit flags, pricing, benefits, access-timing
+      and branch restrictions, freeze/transfer/cancellation/refund policy,
+      active/inactive/archived status (D1, D2); membership create/renew/
+      upgrade/downgrade/extend with pricing snapshotting and lineage
+      tracking, approval-gated freeze/cancel/transfer/refund-request, direct
+      unfreeze/reactivate, a read-only expiry-reminder query for Module V to
+      call later (D3). **D4 (package performance analytics) deliberately
+      deferred to Phase 1.6** (T1–T2 reports work) — no analytics queries or
+      UI were built this session. See `docs/PROGRESS.md` Session 6 and
+      `docs/DECISIONS.md` "Phase 1.2" for the modelling choices (derived
+      "expired" status, pricing snapshots, renewal date math, the
+      refund-request-only boundary with Module O).
 - [ ] 1.3 Billing, GST invoices, payments, refunds with approval (O1–O2)
 - [ ] 1.4 Attendance & QR check-in, access rules (E1–E3, WF2)
 - [ ] 1.5 Form builder, QR codes, enquiries/leads (B1–B3, WF1)
-- [ ] 1.6 Main dashboard & core reports, exports (A1–A4, T1–T2)
+- [ ] 1.6 Main dashboard & core reports, exports (A1–A4, T1–T2) — also
+      covers **D4 Package Performance** (most/least-selling plans,
+      package-wise active members/sales/revenue/renewals/cancellation,
+      coupon/discount performance), deferred here from Phase 1.2
 - [ ] 1.7 Hardening & first deploy
 
 ## Phase 2 — Member experience

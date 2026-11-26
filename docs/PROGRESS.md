@@ -261,3 +261,104 @@ repeated cold-start run after bumping Playwright's `expect.timeout`).
 ### Verified locally before finishing
 
 `pnpm lint`, `pnpm typecheck`, `pnpm format`, `pnpm test`, `pnpm build`.
+
+## Session 6 — Phase 1.2: Membership & Package Management
+
+**Branch:** `claude/phase-1-2-memberships`.
+
+### Built
+
+- Prisma models (D1–D3 + "Membership & Payments" checklist row): `Package`
+  (duration unit/value + category/isTrial/isLimitedVisit flags rather than
+  one rigid plan-type enum; pricing, benefits, access-timing and branch
+  restrictions via `PackageBranch`, freeze/transfer/cancellation/refund
+  policy fields, active/inactive/archived status), `Membership` (the
+  subscription a Member holds — pricing snapshotted at purchase, lineage
+  self-relations for renew/upgrade/downgrade/transfer, benefit-balance
+  counters, `originalExpiryDate` preserved separately from `expiryDate`),
+  `MembershipFreeze`. See `docs/DECISIONS.md` "Phase 1.2" for the reasoning
+  behind the derived "expired" status, the renewal date math, and every
+  other modelling choice.
+- `src/server/modules/memberships/{packages.schema,packages.service,schema,
+service}.ts`: package CRUD/archive/branch-restriction enforcement (D1,
+  D2); membership create (pricing snapshot) / renew (extends from the
+  later of today or current expiry) / upgrade / downgrade (fresh cycle,
+  price-direction validated) / extend (manual goodwill) / approval-gated
+  freeze-request / direct unfreeze / approval-gated cancel-request /
+  approval-gated transfer-request (preserves remaining validity and
+  benefit counters exactly) / request-only refund-approval (never touches
+  money — Module O's job) / reactivate (90-day grace window) / a read-only
+  expiring-soon-or-recently-lapsed query for Module V to call later (D3).
+  A `memberships.approve`-gated list/decide wrapper around the generic
+  `ApprovalRequest` workflow, mirroring Module C's `members.approve`
+  pattern exactly (including the self-approval guard and the "does this
+  request actually belong to this module" check).
+- `src/app/api/v1/{packages,memberships}/...`: full REST surface, Zod-
+  validated, calling only the service layer. A member-scoped convenience
+  read at `/api/v1/members/[id]/membership` for the profile tab.
+- UI: a new `/memberships` section (tabs: Memberships directory —
+  filterable by package/status/expiring-soon, with member search to
+  subscribe someone to a package; Packages — full D2 config form,
+  create/edit/archive; Approvals — a module-wide inbox for
+  `memberships.approve` holders, since freeze/cancel/transfer/refund
+  requests benefit from a cross-member view unlike Module C's single-member
+  suspend/merge). The member detail page's "Membership" tab is now real:
+  current membership card (package, dates, remaining benefits, payment
+  status), action buttons for every D3 lifecycle operation (each opening a
+  small dialog), a pending-approval banner (same inline pattern as Module
+  C), and a membership history list backed by `AuditLog`.
+- 23 new Vitest tests (`tests/unit/memberships.test.ts`): package CRUD and
+  archival (existing memberships unaffected; delete blocked while
+  referenced), pricing-snapshot isolation from later Package price changes,
+  renew-date math (both renewing-early and renewing-late cases), the
+  derived-expired-status logic (including through `listMemberships`),
+  freeze-policy limit enforcement (max count, min notice, max days/year)
+  and the extend-expiry-by-exact-days math for both fixed-duration and
+  open-ended freezes, the approval self-approval guard and wrong-module
+  rejection, transfer preserving remaining benefits/validity while closing
+  the source membership, branch-scoping on create, and extend/reactivate
+  (including the grace-window boundary).
+
+### Verified locally before finishing
+
+`pnpm lint`, `pnpm typecheck`, `pnpm format`, `pnpm test` (66/66 passed),
+`pnpm build` (all 73 routes compile, including every new package/
+membership API route and page).
+
+### Deliberately not done this session
+
+- **D4 Package Performance analytics.** No most/least-selling, package-wise
+  revenue/renewal/cancellation, or coupon-performance queries or UI —
+  explicitly deferred to Phase 1.6 per the brief. `docs/ROADMAP.md` notes
+  this on both the 1.2 and 1.6 lines so it isn't mistaken for already done.
+- **Real invoices/payments.** `Membership.paymentDueAmountInPaise` and
+  `paymentStatus` are staff-maintained placeholders, not derived from any
+  ledger — real billing arrives with Module O (Phase 1.3). The member
+  profile's "Payments" tab is still Phase 1.3's placeholder, untouched.
+- **Proration on upgrade/downgrade.** Changing package starts a fresh
+  cycle today; the old membership's remaining time/benefits are forfeited
+  rather than prorated into a credit. Transfers are the one operation that
+  explicitly preserves remaining validity, per the brief.
+- **Calendar-year reset of freeze limits.** `freezeMaxDaysPerYear`/
+  `freezeMaxCount` are enforced over the membership row's lifetime, not
+  reset every calendar year — seldom what "per year" literally means, but
+  tracking a rolling or calendar freeze-year needs its own bookkeeping
+  that nothing in this phase otherwise needs. Flagged in
+  `docs/DECISIONS.md` as a known simplification.
+- **Fixing the shared `GET /api/v1/approval-requests` endpoint.** Still
+  Phase 0's `admin.approve`-only gate (flagged again in Session 4); Module
+  D works around it with its own `/api/v1/memberships/approvals`, same as
+  Module C did.
+
+### Known issues / TODOs for the next session
+
+- An open-ended freeze's day-count isn't checked against
+  `freezeMaxDaysPerYear` until `unfreezeMembership` closes it out (the
+  duration isn't known before then) — so an open-ended freeze can
+  temporarily exceed the per-year day limit before anyone notices. Only
+  `freezeMaxCount` is enforced strictly up front for every freeze type.
+- The memberships directory's and the transfer dialog's member search both
+  reuse `GET /api/v1/members?q=...` directly from client components; no
+  shared "member picker" component exists yet — worth extracting once a
+  third place needs the same search-and-select UI (likely Module B's
+  enquiry-to-member conversion in Phase 1.5).
