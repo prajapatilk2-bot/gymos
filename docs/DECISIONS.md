@@ -181,3 +181,117 @@ leading spaces) is prefixed with `'` on export, since Excel/Google Sheets
 can otherwise execute it as a formula when a member export is opened —
 applies to every CSV export via `encodeCsvField`, not just members, and
 deliberately does not touch `parseCsv`/import.
+
+## Phase 1.2 — Membership & Package Management
+
+**`Package` models D1's plan types as duration (unit + value) + a
+`category` enum + two independent booleans, not one rigid enum.** A real
+plan is "monthly" AND "VIP" AND possibly "trial" at once — D1's list
+(monthly/quarterly/daily/weekly/trial/limited-visit/student/couple/
+family/corporate/off-peak/premium/VIP/cardio-only/general/group-class/
+bundled/custom) isn't a set of mutually exclusive options. `durationUnit`/
+`durationValue` cover the time-based distinctions, `category` covers the
+remaining marketing-type distinctions, and `isTrial`/`isLimitedVisit` (+
+`visitLimit`) are orthogonal flags — any combination composes naturally
+without the enum needing a new value for every new combination a gym
+invents.
+
+**`Package` is org-scoped, not branch-scoped — branch _access_ is a
+restriction on top, not ownership.** D2 explicitly separates "which
+branches can sell/use this package" from "who owns this product
+definition." `allBranches: true` (default) means sellable everywhere;
+`false` restricts to the `PackageBranch` join rows. This also means
+archiving/editing a package is one write regardless of how many branches
+offer it.
+
+**`Membership.status` is only `active | frozen | cancelled` — "expired" is
+derived at read time (`deriveMembershipStatus` in
+`memberships/service.ts`), never stored.** The brief asked for this
+explicitly. The payoff shows up in the freeze design: a fixed-duration
+freeze's extended `expiryDate` can pass with nobody ever calling
+`unfreezeMembership` again, and the membership still correctly reads as
+"expired" (not stuck showing "frozen" forever) because derivation checks
+`expiryDate` _before_ falling back to the stored `frozen`/`active` value.
+No cron job anywhere flips a membership's status at midnight.
+
+**`originalExpiryDate` is set once at `Membership` creation and never
+touched again.** It's the fixed baseline every later extension (freeze,
+manual `extendMembership`) is measured against — "how much has this
+row's validity grown in total" is always `expiryDate - originalExpiryDate`
+regardless of how many separate extensions contributed. A renewal does
+_not_ update it, because renewal creates a _new_ `Membership` row (see
+next entry), which gets its own fresh baseline.
+
+**Renew, upgrade and downgrade each create a new `Membership` row (with a
+lineage pointer back to the old one); freeze/extend/unfreeze/reactivate
+mutate the existing row in place.** The brief asked for lineage fields
+(`renewedFromId`/`upgradedFromId`/`downgradedFromId`/`transferredFromId`),
+which only make sense if a _new_ row is actually created for those four
+operations — otherwise there'd be nothing to point at. This also means
+"complete membership history" (D3) is just "list every `Membership` row
+for this member," no AuditLog-diffing required to reconstruct past cycles.
+Closing out the superseded row needs no new status value: upgrade/
+downgrade/transfer set its `expiryDate` to the cutover moment (usually
+"now"), and it then simply derives as "expired" — consistent with the
+"expired is derived" design above. Renewal is the one case where the old
+row doesn't need touching at all: `newStart = max(now, old.expiryDate)` is
+never _before_ `old.expiryDate`, so the old row already derives correctly
+with no write.
+
+**Renew date math: `newStart = max(now, currentExpiry)`.** Renewing before
+expiry starts the new cycle exactly when the old one ends (no gap, no
+double-counted days); renewing after a lapse starts the new cycle today
+rather than backdating from a missed expiry date the member wasn't
+actually using the gym during.
+
+**Upgrade/downgrade start a fresh cycle today and forfeit the old
+package's remaining time/benefits — no proration.** The brief only asked
+transfer to explicitly preserve remaining validity; proration math (credit
+for N unused days of the old package applied to the new one) is real
+billing logic that depends on Module O's invoicing, which doesn't exist
+yet. Upgrade is rejected if the target package is strictly cheaper (and
+vice versa for downgrade) so the two operations can't be used
+interchangeably to dodge the distinction — equal-priced "sideways" moves
+are allowed via either.
+
+**`unfreezeMembership` is a direct action; `requestFreezeMembership` is
+approval-gated.** The brief's own naming is the tell: every other
+approval-gated D3 operation is named `request*` (`requestFreezeMembership`,
+`requestCancelMembership`, `requestTransferMembership`,
+`requestRefundApproval`) — `unfreezeMembership` and `reactivateMembership`
+are the two lifecycle operations _not_ given that prefix. This also
+matches Module C's precedent (deactivate/reactivate are direct; suspend/
+merge are approval-gated): ending a pause is routine and reversible,
+_starting_ one is the step worth a second pair of eyes.
+
+**Freeze-limit enforcement: `freezeMaxCount` is always checked up front;
+`freezeMaxDaysPerYear` only when the end date is already known.** An
+open-ended freeze's day count isn't knowable until `unfreezeMembership`
+closes it out, so that check happens retroactively at that point instead —
+documented as a known gap (an open-ended freeze can temporarily exceed the
+per-year limit before anyone notices) rather than silently skipped.
+Limits are also enforced over the membership row's lifetime, not reset
+every calendar year (tracking a real "freeze year" would need its own
+bookkeeping nothing else in this phase needs) — both simplifications are
+called out again in `docs/PROGRESS.md` Session 6.
+
+**`requestRefundApproval` creates an `ApprovalRequest` and nothing else —
+`decideMembershipApprovalRequest` has no "apply" branch for
+`membership_refund` at all.** Every other request type
+(freeze/cancel/transfer) has code that runs on approval; refund
+deliberately doesn't, because there's no invoice or payment record yet to
+refund against (Module O, Phase 1.3). Approving one here only flips the
+`ApprovalRequest`'s own status — a future session's billing code is
+expected to query approved `membership_refund` rows when real refund
+processing is built, not have this phase guess at what that will look
+like.
+
+**The memberships approvals inbox is a new, module-wide page
+(`/memberships` → Approvals tab), not just an inline per-membership
+banner.** Module C never built a standalone approvals screen — it only
+surfaces a member's own pending requests inline on their profile, which
+this module also does (same banner pattern, unchanged) for consistency.
+But freeze/cancel/transfer/refund requests are things an approver
+naturally wants to triage _across_ members in one place, unlike Module
+C's narrower suspend/merge case, so Module D adds the inbox in addition to
+the inline banner rather than instead of it.

@@ -159,6 +159,9 @@ model Organization {
   memberConsents           MemberConsent[]
   visitors                 Visitor[]
   guestPasses              GuestPass[]
+  packages                 Package[]
+  memberships              Membership[]
+  membershipFreezes        MembershipFreeze[]
 
   @@map("organization")
 }
@@ -192,6 +195,8 @@ model Branch {
   members          Member[]
   visitors         Visitor[]
   guestPasses      GuestPass[]
+  packageBranches  PackageBranch[]
+  memberships      Membership[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -502,6 +507,7 @@ model Member {
   documents         MemberDocument[]
   consents          MemberConsent[]
   guestPassesIssued GuestPass[]              @relation("GuestPassIssuedByMember")
+  memberships       Membership[]
 
   @@unique([organizationId, memberCode])
   @@unique([organizationId, cardNumber])
@@ -684,4 +690,256 @@ model GuestPass {
   @@index([organizationId, branchId])
   @@index([organizationId, type])
   @@map("guest_pass")
+}
+
+// ---------------------------------------------------------------------------
+// Module D — Membership & Package Management (Phase 1.2). See
+// docs/DECISIONS.md "Phase 1.2" for the reasoning behind each modelling
+// choice called out below.
+// ---------------------------------------------------------------------------
+
+enum PackageDurationUnit {
+  day
+  week
+  month
+  year
+}
+
+// D1's package types aren't really orthogonal (a plan is "monthly" AND
+// "VIP" AND possibly "trial"), so rather than one rigid enum enumerating
+// every combination, duration is its own pair of fields
+// (durationUnit/durationValue) and D1's remaining type distinctions reduce
+// to this one `category` enum plus two independent booleans
+// (isTrial, isLimitedVisit — with visitLimit only meaningful when the
+// latter is true).
+enum PackageCategory {
+  general
+  student
+  couple
+  family
+  corporate
+  off_peak
+  premium
+  vip
+  cardio_only
+  group_class
+  bundled
+  custom
+}
+
+enum PackageStatus {
+  active
+  inactive
+  archived
+}
+
+// D1/D2 "flexible membership products". Org-scoped, not branch-scoped —
+// D2 says packages restrict *which* branches can sell them (allBranches /
+// PackageBranch) rather than belonging to one branch outright.
+model Package {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  name        String
+  description String?
+
+  durationUnit   PackageDurationUnit
+  durationValue  Int
+  category       PackageCategory     @default(general)
+  isTrial        Boolean             @default(false)
+  isLimitedVisit Boolean             @default(false)
+  visitLimit     Int? // only meaningful when isLimitedVisit
+
+  // Money as integer paise (CLAUDE.md rule 5) — never float.
+  priceInPaise                Int
+  joiningFeeInPaise           Int     @default(0)
+  registrationFeeInPaise      Int     @default(0)
+  // Tax *category* placeholder only — real GST calculation is Phase 1.3
+  // (Module O). This just records whether the package is taxable at all.
+  isTaxable                   Boolean @default(true)
+  defaultDiscountPercent      Int? // promotional pricing (0-100)
+  earlyRenewalDiscountPercent Int? // D2 "early-renewal discounts" (0-100)
+  couponCode                  String? // a single baseline coupon code; a real coupon/campaign system arrives with Module N (Phase 2)
+
+  ptSessionsIncluded   Int   @default(0)
+  groupClassesIncluded Int   @default(0)
+  guestPassesIncluded  Int   @default(0)
+  // Freebie catalogue doesn't exist until Module G (Phase 3), so
+  // entitlements are just a free-form list of {name, quantity} for now.
+  freebieEntitlements  Json?
+
+  // Access timing restriction (D2). Null on either side = no restriction.
+  accessWindowStart String? // "HH:mm"
+  accessWindowEnd   String? // "HH:mm"
+
+  // Branch access restriction (D2). true = sellable/usable at every branch
+  // in the organization; false = restricted to the branches listed in
+  // `branchRestrictions`.
+  allBranches Boolean @default(true)
+
+  cancellationPolicy   String?
+  freezeAllowed        Boolean @default(true)
+  freezeMaxDaysPerYear Int     @default(30)
+  freezeMaxCount       Int     @default(2)
+  freezeMinNoticeDays  Int     @default(0)
+  transferAllowed      Boolean @default(true)
+  refundPolicy         String?
+
+  // active = sellable now; inactive = temporarily withdrawn from sale
+  // (can be reactivated); archived = permanently retired via archivePackage
+  // (D1/D2 "retiring a plan doesn't affect members already on it" — a
+  // Membership's packageId keeps pointing at this row regardless of status).
+  status PackageStatus @default(active)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  branchRestrictions PackageBranch[]
+  memberships        Membership[]
+
+  @@index([organizationId, status])
+  @@map("package")
+}
+
+// Join table for Package.allBranches = false (D2 branch access restriction).
+model PackageBranch {
+  id        String  @id @default(cuid())
+  packageId String
+  package   Package @relation(fields: [packageId], references: [id])
+  branchId  String
+  branch    Branch  @relation(fields: [branchId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([packageId, branchId])
+  @@map("package_branch")
+}
+
+enum MembershipStatus {
+  active
+  frozen
+  cancelled
+}
+
+enum MembershipPaymentStatus {
+  unpaid
+  partially_paid
+  paid
+}
+
+// D3 — the subscription a Member actually holds. "expired" is
+// deliberately NOT a stored status: it's derived at read time from
+// `expiryDate` (see src/server/modules/memberships/service.ts
+// `deriveMembershipStatus`) so there's no cron job needed to flip
+// memberships over at midnight, and no risk of the stored value drifting
+// out of sync with the date it's actually based on.
+model Membership {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id])
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id])
+  packageId      String
+  package        Package      @relation(fields: [packageId], references: [id])
+
+  status MembershipStatus @default(active)
+
+  startDate          DateTime
+  // Current expiry — moves forward on renewal/extension/freeze.
+  expiryDate         DateTime
+  // Set once at creation and never touched again afterwards: the fixed
+  // baseline every later extension (freeze, manual extend) is measured
+  // against, so "how much has this membership's validity been extended
+  // in total" is always `expiryDate - originalExpiryDate`, regardless of
+  // how many separate freezes or extensions contributed to it.
+  originalExpiryDate DateTime
+
+  // Pricing snapshotted at purchase/renewal time so a later Package price
+  // change never retroactively alters an existing Membership.
+  priceAtPurchaseInPaise   Int
+  joiningFeeChargedInPaise Int     @default(0)
+  discountAppliedInPaise   Int     @default(0)
+  couponCode               String?
+
+  // Benefit balances only — the actual consumption workflows (booking a
+  // PT session, checking into a class) arrive with Modules H/M in Phase 2.
+  ptSessionsRemaining   Int @default(0)
+  groupClassesRemaining Int @default(0)
+  guestPassesRemaining  Int @default(0)
+
+  freezeDaysUsed Int @default(0)
+  freezeCount    Int @default(0)
+
+  // Manually-driven placeholder (CLAUDE.md dependency note): real
+  // invoice/payment records arrive with Module O (Phase 1.3). Until then
+  // this is just a staff-maintained balance/status, not derived from any
+  // ledger.
+  paymentDueAmountInPaise Int                     @default(0)
+  paymentStatus           MembershipPaymentStatus @default(unpaid)
+
+  // Lineage — each points at the Membership row this one succeeded, so a
+  // member's full subscription history is traceable as a chain even
+  // across renewals/upgrades/downgrades/transfers, without needing to
+  // diff AuditLog entries to reconstruct it.
+  renewedFromId     String?
+  renewedFrom       Membership?  @relation("MembershipRenewal", fields: [renewedFromId], references: [id])
+  renewedTo         Membership[] @relation("MembershipRenewal")
+  upgradedFromId    String?
+  upgradedFrom      Membership?  @relation("MembershipUpgrade", fields: [upgradedFromId], references: [id])
+  upgradedTo        Membership[] @relation("MembershipUpgrade")
+  downgradedFromId  String?
+  downgradedFrom    Membership?  @relation("MembershipDowngrade", fields: [downgradedFromId], references: [id])
+  downgradedTo      Membership[] @relation("MembershipDowngrade")
+  transferredFromId String?
+  transferredFrom   Membership?  @relation("MembershipTransfer", fields: [transferredFromId], references: [id])
+  transferredTo     Membership[] @relation("MembershipTransfer")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  freezes MembershipFreeze[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, memberId])
+  @@index([organizationId, branchId])
+  @@index([organizationId, expiryDate])
+  @@map("membership")
+}
+
+// One row per freeze period (D3 "freeze reasons, freeze limits and
+// approval" checklist item). `endDate` is null while the freeze is
+// open-ended/ongoing — unfreezeMembership sets it once the member
+// actually comes back.
+model MembershipFreeze {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  membershipId   String
+  membership     Membership   @relation(fields: [membershipId], references: [id])
+
+  startDate DateTime
+  endDate   DateTime?
+  reason    String?
+
+  // The ApprovalRequest that authorized this freeze (requestFreezeMembership
+  // always creates one — see CLAUDE.md rule 8).
+  approvalRequestId String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  @@index([organizationId, membershipId])
+  @@map("membership_freeze")
 }
