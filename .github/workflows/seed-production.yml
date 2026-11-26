@@ -1,0 +1,30 @@
+name: seed-production
+
+# Manual only — never fires on push/PR. Run once from the Actions tab after
+# the first successful Vercel deploy (see docs/DEPLOYMENT.md). Safe to
+# re-run: prisma/seed.ts upserts on stable natural keys.
+on:
+  workflow_dispatch:
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SEED_ADMIN_EMAIL: ${{ secrets.SEED_ADMIN_EMAIL }}
+      SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Seed production database
+        run: pnpm db:seed

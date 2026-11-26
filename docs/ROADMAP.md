@@ -27,8 +27,11 @@ merged — not when a page merely exists as a placeholder.
       smoke test (login → dashboard placeholder → logout)
 - [x] CI (GitHub Actions): install, lint, typecheck, format, unit tests,
       build, E2E on every PR
-- [ ] First deploy to Vercel + Neon (deliberately not done this session —
-      see `docs/PROGRESS.md`)
+- [x] Deploy-readiness for Vercel + Neon: `vercel.json` build command runs
+      `prisma migrate deploy` before `next build`; manual
+      `seed-production.yml` GitHub Actions workflow; `docs/DEPLOYMENT.md`
+      walkthrough. Actual first deploy still pending — needs the user's own
+      Vercel/Neon accounts (see `docs/PROGRESS.md`).
 
 ## Phase 1 — Core operations
 
