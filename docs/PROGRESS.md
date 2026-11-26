@@ -120,7 +120,7 @@ name 'LayoutProps'`. `typecheck` now runs `next typegen` first (generates
   (second `migrate deploy` run reported "No pending migrations to apply").
 - `.github/workflows/seed-production.yml`: `workflow_dispatch`-only (no
   push/PR trigger) workflow that runs `pnpm install --frozen-lockfile &&
-  pnpm db:seed` against repo secrets `DATABASE_URL`, `SEED_ADMIN_EMAIL`,
+pnpm db:seed` against repo secrets `DATABASE_URL`, `SEED_ADMIN_EMAIL`,
   `SEED_ADMIN_PASSWORD`. For the user to run once, by hand, from the
   Actions tab, after the first successful Vercel deploy.
 - `docs/DEPLOYMENT.md`: full Vercel + Neon walkthrough — Neon project
