@@ -110,7 +110,52 @@ name 'LayoutProps'`. `typecheck` now runs `next typegen` first (generates
   `packageManager: "pnpm@10.28.0"` in `package.json`) by dropping the
   explicit input.
 
-## Session 3 — Phase 1.1: Member Management
+## Session 3 — Vercel + Neon deploy readiness
+
+### Built
+
+- `vercel.json`: `buildCommand` runs `prisma migrate deploy && next build`
+  on every deploy. `migrate deploy` only applies migrations not yet run, so
+  it's a safe no-op on deploys with no schema change — verified locally
+  (second `migrate deploy` run reported "No pending migrations to apply").
+- `.github/workflows/seed-production.yml`: `workflow_dispatch`-only (no
+  push/PR trigger) workflow that runs `pnpm install --frozen-lockfile &&
+pnpm db:seed` against repo secrets `DATABASE_URL`, `SEED_ADMIN_EMAIL`,
+  `SEED_ADMIN_PASSWORD`. For the user to run once, by hand, from the
+  Actions tab, after the first successful Vercel deploy.
+- `docs/DEPLOYMENT.md`: full Vercel + Neon walkthrough — Neon project
+  setup, Vercel env vars, the two-step `BETTER_AUTH_URL` dance (placeholder
+  → first deploy → real URL → redeploy), and the one-time production seed
+  via the Actions tab.
+- `docs/ROADMAP.md` Phase 0 "First deploy" item split into "deploy
+  readiness" (done this session) vs. the actual first deploy (still
+  pending — needs the user's own Vercel/Neon accounts).
+
+### Verified locally before finishing
+
+Spun up a disposable local Postgres 16 cluster (`gymos` + `gymos_test`
+databases) in the sandbox — nothing was run against Neon or any shared
+database. `pnpm lint`, `pnpm typecheck`, `pnpm format`, `pnpm test` (15/15
+passed), and `pnpm exec prisma migrate deploy && pnpm build` (mirroring the
+new `vercel.json` build command exactly) all ran clean. `.env`/`.env.test`
+were created only for this local run and deleted afterward (both
+gitignored; `git status` confirmed nothing leaked).
+
+### Deliberately not done this session
+
+- **Actually deploying to Vercel/Neon.** Creating the Neon project, the
+  Vercel project, and setting the real environment variables all require
+  the user's own accounts/browser — see `docs/DEPLOYMENT.md` for the exact
+  steps.
+- **Running `seed-production.yml` for real.** It needs the repo secrets the
+  user adds themselves, against a real Neon database that doesn't exist
+  yet from this session's perspective.
+- **E2E smoke test / full CI run.** Not re-run this session — no code
+  changed in `src/`, only build config, a new manual-only workflow, and
+  docs. The GitHub Actions CI workflow (`ci.yml`) is unaffected (it already
+  runs its own `prisma migrate deploy` step separately from `pnpm build`).
+
+## Session 4 — Phase 1.1: Member Management
 
 **Branch:** `claude/sleepy-hawking-caenop`.
 

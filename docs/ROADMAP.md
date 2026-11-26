@@ -27,8 +27,11 @@ merged — not when a page merely exists as a placeholder.
       smoke test (login → dashboard placeholder → logout)
 - [x] CI (GitHub Actions): install, lint, typecheck, format, unit tests,
       build, E2E on every PR
-- [ ] First deploy to Vercel + Neon (deliberately not done this session —
-      see `docs/PROGRESS.md`)
+- [x] Deploy-readiness for Vercel + Neon: `vercel.json` build command runs
+      `prisma migrate deploy` before `next build`; manual
+      `seed-production.yml` GitHub Actions workflow; `docs/DEPLOYMENT.md`
+      walkthrough. Actual first deploy still pending — needs the user's own
+      Vercel/Neon accounts (see `docs/PROGRESS.md`).
 
 ## Phase 1 — Core operations
 
@@ -42,7 +45,7 @@ merged — not when a page merely exists as a placeholder.
       branch transfer, approval-gated suspend/unsuspend and merge, data
       export request and consent withdrawal (C4); visitor register and
       guest/trial passes as lightweight non-Member records; printable
-      member ID card. See `docs/PROGRESS.md` Session 3 and
+      member ID card. See `docs/PROGRESS.md` Session 4 and
       `docs/DECISIONS.md` for what's deferred to later phases.
 - [ ] 1.2 Packages & membership lifecycle (D1–D3)
 - [ ] 1.3 Billing, GST invoices, payments, refunds with approval (O1–O2)
