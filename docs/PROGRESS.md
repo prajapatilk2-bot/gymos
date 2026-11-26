@@ -236,3 +236,28 @@ repeated cold-start run after bumping Playwright's `expect.timeout`).
 - The member directory's PDF export is "print the page," matching the ID
   card — fine for one-off printing, but a scheduled/unattended export
   (Module T, Phase 5.2) will need a real PDF-generation path.
+
+## Session 5 — Security fix: CSV injection guard on exports
+
+**Branch:** `claude/gifted-hawking-394rhv`.
+
+### Built
+
+- Hardened `encodeCsvField` in `src/server/modules/members/csv.ts`: a field
+  value starting with `=`, `+`, `-`, `@`, tab or CR (leading spaces
+  stripped first) is now prefixed with a leading `'` before quoting, so
+  Excel/Google Sheets can't interpret an exported member field as a
+  formula. Applies to every current and future caller of the shared
+  `toCsv` encoder; `parseCsv`/`parseCsvWithHeader` (import) are untouched
+  so a value genuinely starting with `-` still round-trips exactly on
+  import.
+- New unit tests in `tests/unit/members-csv.test.ts` covering each trigger
+  character, a normal value staying unchanged, a value merely containing
+  (not starting with) a trigger char, leading-space evasion, and the
+  one-way nature of the guard (re-parsing an exported, guarded value does
+  not strip the apostrophe back off).
+- `docs/DECISIONS.md` note on why the guard exists.
+
+### Verified locally before finishing
+
+`pnpm lint`, `pnpm typecheck`, `pnpm format`, `pnpm test`, `pnpm build`.
