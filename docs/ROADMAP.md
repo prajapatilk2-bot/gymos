@@ -35,7 +35,18 @@ merged — not when a page merely exists as a placeholder.
 
 ## Phase 1 — Core operations
 
-- [ ] 1.1 Members (C1–C4)
+- [x] 1.1 Members (C1–C4) + Members & Reception checklist row: registration
+      with auto-generated member ID/card number and waiver capture (C1);
+      directory with search/filters, CSV bulk import/export and duplicate
+      detection (C2); profile with personal info, restricted health
+      declaration, documents, consent history and an AuditLog-backed
+      activity timeline, with membership/payments/attendance shown as
+      Phase 1.2+/1.3+/1.4+ placeholders (C3); edit, deactivate/reactivate,
+      branch transfer, approval-gated suspend/unsuspend and merge, data
+      export request and consent withdrawal (C4); visitor register and
+      guest/trial passes as lightweight non-Member records; printable
+      member ID card. See `docs/PROGRESS.md` Session 4 and
+      `docs/DECISIONS.md` for what's deferred to later phases.
 - [ ] 1.2 Packages & membership lifecycle (D1–D3)
 - [ ] 1.3 Billing, GST invoices, payments, refunds with approval (O1–O2)
 - [ ] 1.4 Attendance & QR check-in, access rules (E1–E3, WF2)
