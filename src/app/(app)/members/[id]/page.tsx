@@ -43,6 +43,7 @@ import {
   toUpdateMemberPayload,
   type BranchOption,
 } from "@/components/members/member-form";
+import { MembershipTab } from "@/components/memberships/membership-tab";
 
 interface MemberDetail {
   id: string;
@@ -242,7 +243,7 @@ export default function MemberDetailPage() {
           <ProfileTab member={member} />
         </TabsContent>
         <TabsContent value="membership">
-          <PlaceholderCard text="No active membership yet. Membership lifecycle (create, renew, freeze, cancel) arrives in Module D (Phase 1.2)." />
+          <MembershipTab memberId={member.id} />
         </TabsContent>
         <TabsContent value="payments">
           <PlaceholderCard text="No payment history yet. Billing and invoices arrive in Module O (Phase 1.3)." />
