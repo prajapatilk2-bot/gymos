@@ -172,3 +172,12 @@ first navigation in a freshly-started dev server now sometimes exceeds 5s
 simply because there are more routes in the app for Turbopack's dev
 manifest to account for. Confirmed by running `test:e2e` against a cold
 `.next` cache repeatedly before and after the change.
+
+## Session 5
+
+**CSV injection (formula injection) hardening in the shared `toCsv`
+encoder.** A field starting with `=`, `+`, `-`, `@`, tab or CR (after
+leading spaces) is prefixed with `'` on export, since Excel/Google Sheets
+can otherwise execute it as a formula when a member export is opened —
+applies to every CSV export via `encodeCsvField`, not just members, and
+deliberately does not touch `parseCsv`/import.
