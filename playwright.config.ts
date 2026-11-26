@@ -16,6 +16,11 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   reporter: "line",
+  // Next dev (Turbopack) compiles each route on first visit. As the app
+  // grows past Phase 0's handful of routes, the very first navigation in a
+  // freshly-started dev server can take longer than Playwright's 5s
+  // default assertion timeout — bump it rather than pre-warming routes.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: "http://localhost:3000",
     trace: "off",

@@ -109,3 +109,85 @@ name 'LayoutProps'`. `typecheck` now runs `next typegen` first (generates
   the workflow's explicit `version: 10` input conflicted with
   `packageManager: "pnpm@10.28.0"` in `package.json`) by dropping the
   explicit input.
+
+## Session 3 — Phase 1.1: Member Management
+
+**Branch:** `claude/sleepy-hawking-caenop`.
+
+### Built
+
+- Prisma models (C1–C4 + Members & Reception checklist row): `Member`
+  (core profile, emergency contact fields, status enum, tag array,
+  `mergedIntoId` self-relation), `MemberHealthDeclaration` (separate
+  table, gated by `sensitive.health.*`), `MemberDocument`, `MemberConsent`,
+  `Visitor`, `GuestPass`. `Organization.memberSequence` for atomic
+  sequential member-code generation. See `docs/DECISIONS.md` "Phase 1.1"
+  for the reasoning behind each modelling choice.
+- `src/server/modules/members/{schema,service,csv}.ts` +
+  `visitors.{schema,service}.ts` + `guest-passes.{schema,service}.ts`:
+  registration with duplicate detection and auto-generated member
+  ID/card number (C1); directory listing with search, status/tag/branch/
+  trainer/joining-date filters, branch-access scoping, CSV export and
+  per-row-resilient CSV bulk import (C2); profile reads, health
+  declaration, documents, consent history/withdrawal and an
+  AuditLog-sourced activity timeline that excludes health-declaration
+  entries unless the caller holds `sensitive.health.view` (C3); edit,
+  deactivate/reactivate, branch transfer, approval-gated suspend/unsuspend
+  and merge (via a `members.approve`-gated wrapper around the generic
+  `ApprovalRequest` workflow), data export and consent withdrawal (C4);
+  visitor check-in/check-out and guest/trial pass issue/use/convert.
+- `src/app/api/v1/{members,visitors,guest-passes}/...`: full REST surface
+  for all of the above, Zod-validated, calling only the service layer.
+- UI under `src/app/(app)/members/`: directory (with visitor register and
+  guest/trial pass tabs), member detail page (profile, membership/
+  payments/attendance placeholders, health, documents, consents, timeline
+  tabs, plus edit/transfer/suspend-request/merge-request/export actions
+  and a pending-approval banner with approve/reject), a hardcoded-but-
+  sectioned registration form (`components/members/member-form.tsx`) built
+  so Phase 1.5's dynamic form builder can wire the same sections to
+  backend-configured fields later, and a printable member ID card
+  (`members/[id]/card`) using CSS `print:` utilities on the app shell
+  layout rather than a PDF library.
+- 31 new/updated Vitest tests (`tests/unit/members.test.ts`,
+  `members-csv.test.ts`): permission checks (allowed + denied) for create/
+  edit/approve, branch scoping, member-code sequencing, duplicate
+  detection and override, the full suspend and merge approval flows
+  (including self-approval and wrong-module-request rejection), the
+  sensitive-data isolation in the timeline, and CSV round-tripping.
+
+### Verified locally before finishing
+
+`pnpm lint`, `pnpm typecheck`, `pnpm format`, `pnpm test` (31/31 passed),
+`pnpm build` (all 30 routes compile, including the new member/visitor/
+guest-pass API routes and pages), `pnpm test:e2e` (1/1 passed, including a
+repeated cold-start run after bumping Playwright's `expect.timeout`).
+
+### Deliberately not done this session (Phase 1.2+)
+
+- **Real membership/package logic.** The member profile's Membership,
+  Payments and Attendance tabs are explicit placeholders per the brief —
+  `Member.membershipPreference` is a free-text note captured at
+  registration only. Arrives with Module D (Phase 1.2), Module O
+  (Phase 1.3) and Module E (Phase 1.4) respectively.
+- **"Cancel membership" and "upgrade/downgrade/freeze/unfreeze/extend
+  membership" (C4).** These are membership-lifecycle operations that need
+  a real Package/Membership record to act on; deferred to Module D.
+- **Real file storage for `MemberDocument`/photos.** Stores a URL/key
+  only, per the brief; an actual upload integration is a later session.
+- **Fixing `GET /api/v1/approval-requests`'s `admin.approve`-only gate.**
+  Flagged again in `docs/DECISIONS.md` — now that a second module
+  (`members.approve`) creates real `ApprovalRequest` rows, the shared
+  endpoint should accept either `admin.approve` or the request's own
+  module permission. Worked around for this module with its own
+  `GET /api/v1/members/approvals`, but the shared endpoint itself is
+  still Phase 0's narrower check.
+
+### Known issues / TODOs for the next session
+
+- `assignedTrainerId` on `Member` is a bare string (a `User.id`) with no
+  validation or trainer directory yet — Module H (Phase 2) should add a
+  real Trainer entity and a picker instead of the free-text id field
+  currently in the registration form.
+- The member directory's PDF export is "print the page," matching the ID
+  card — fine for one-off printing, but a scheduled/unattended export
+  (Module T, Phase 5.2) will need a real PDF-generation path.

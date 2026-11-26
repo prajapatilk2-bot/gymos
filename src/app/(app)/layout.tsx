@@ -32,15 +32,21 @@ export default async function AppLayout({
     null;
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
-      <Sidebar modules={modules} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar
-          modules={modules}
-          branches={branches.map((b) => ({ id: b.id, name: b.name }))}
-          currentBranchId={currentBranchId}
-        />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+    <div className="flex h-screen w-full overflow-hidden print:h-auto print:overflow-visible">
+      <div className="print:hidden">
+        <Sidebar modules={modules} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col print:overflow-visible">
+        <div className="print:hidden">
+          <Topbar
+            modules={modules}
+            branches={branches.map((b) => ({ id: b.id, name: b.name }))}
+            currentBranchId={currentBranchId}
+          />
+        </div>
+        <main className="flex-1 overflow-y-auto print:overflow-visible">
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -141,13 +141,24 @@ model Organization {
   createdById String?
   updatedById String?
 
-  branches         Branch[]
-  users            User[]
-  roles            Role[]
-  settings         OrganizationSetting[]
-  userRoles        UserRole[]
-  auditLogs        AuditLog[]
-  approvalRequests ApprovalRequest[]
+  // Atomically incremented to mint the next sequential member code
+  // ("GM-0001", ...) and card number (C1). Incrementing a single row's
+  // column is race-safe under Postgres; no separate counter table needed.
+  memberSequence Int @default(0)
+
+  branches                 Branch[]
+  users                    User[]
+  roles                    Role[]
+  settings                 OrganizationSetting[]
+  userRoles                UserRole[]
+  auditLogs                AuditLog[]
+  approvalRequests         ApprovalRequest[]
+  members                  Member[]
+  memberHealthDeclarations MemberHealthDeclaration[]
+  memberDocuments          MemberDocument[]
+  memberConsents           MemberConsent[]
+  visitors                 Visitor[]
+  guestPasses              GuestPass[]
 
   @@map("organization")
 }
@@ -178,6 +189,9 @@ model Branch {
   userRoles        UserRole[]
   auditLogs        AuditLog[]
   approvalRequests ApprovalRequest[]
+  members          Member[]
+  visitors         Visitor[]
+  guestPasses      GuestPass[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -394,4 +408,280 @@ model ApprovalRequest {
   @@index([organizationId, status])
   @@index([branchId])
   @@map("approval_request")
+}
+
+// ---------------------------------------------------------------------------
+// Member management (Module C: C1 Registration, C2 Directory, C3 Profile &
+// Timeline, C4 Operations) + the Members & Reception row of the Additional
+// Operational Details Checklist (visitor register, guest/trial pass).
+//
+// See docs/DECISIONS.md "Phase 1.1" for why emergency-contact fields live
+// directly on Member instead of a separate table, and why health data gets
+// its own table gated by the sensitive.health.* permission keys.
+// ---------------------------------------------------------------------------
+
+enum MemberStatus {
+  active
+  inactive
+  expired
+  suspended
+  frozen
+}
+
+// Marketing/membership-type labels (C2 directory filters). Independent of
+// MemberStatus — a member can be both "active" and "vip", for example.
+enum MemberTag {
+  vip
+  personal_training
+  trial
+  corporate
+  couple
+  family
+}
+
+enum Gender {
+  male
+  female
+  other
+  prefer_not_to_say
+}
+
+model Member {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id])
+
+  // Auto-generated, human-readable, sequential per organization (C1), e.g.
+  // "GM-0001". cardNumber defaults to the same value at registration but
+  // can be changed later (e.g. a physical card is lost/reissued).
+  memberCode String
+  cardNumber String?
+
+  name           String
+  photoUrl       String?
+  mobile         String
+  whatsappNumber String?
+  email          String?
+
+  dateOfBirth String? // ISO date (yyyy-mm-dd) — date-only, no time/timezone
+  gender      Gender?
+  address     String?
+
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  emergencyContactRelation String?
+
+  registrationDate DateTime  @default(now())
+  joiningDate      DateTime?
+  leadSource       String?
+
+  occupation           String?
+  fitnessGoals         String?
+  assignedTrainerId    String? // User.id of a staff member; no dedicated Trainer entity until Module H (Phase 2)
+  membershipPreference String? // free-text note captured at registration only — real Package/Membership record arrives in Phase 1.2 (Module D)
+
+  status MemberStatus @default(active)
+  tags   MemberTag[]
+
+  // C4 "merge duplicate profiles while retaining an audit trail": the
+  // duplicate is soft-deleted and points at the surviving member; the full
+  // before/after of both records is additionally written to AuditLog.
+  mergedIntoId String?
+  mergedInto   Member?  @relation("MemberMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom   Member[] @relation("MemberMerge")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  healthDeclaration MemberHealthDeclaration?
+  documents         MemberDocument[]
+  consents          MemberConsent[]
+  guestPassesIssued GuestPass[]              @relation("GuestPassIssuedByMember")
+
+  @@unique([organizationId, memberCode])
+  @@unique([organizationId, cardNumber])
+  @@index([organizationId, status])
+  @@index([organizationId, branchId])
+  @@index([organizationId, mobile])
+  @@index([organizationId, email])
+  @@map("member")
+}
+
+// Health declaration / injury notes (C1). Deliberately a separate table
+// from Member so an ordinary `members.view` query never selects it — every
+// read/write here additionally requires sensitive.health.view/edit (see
+// CLAUDE.md "Permissions").
+model MemberHealthDeclaration {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  memberId       String       @unique
+  member         Member       @relation(fields: [memberId], references: [id])
+
+  hasMedicalConditions Boolean @default(false)
+  medicalConditions    String?
+  injuries             String?
+  medications          String?
+  allergies            String?
+  physicianName        String?
+  physicianPhone       String?
+  precautions          String?
+
+  declaredAt   DateTime?
+  declaredById String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  @@index([organizationId])
+  @@map("member_health_declaration")
+}
+
+enum MemberDocumentType {
+  id_proof
+  address_proof
+  photo
+  agreement
+  waiver
+  medical_certificate
+  other
+}
+
+// Uploaded file metadata only (C1, C3). Stores a URL/key; real file-upload
+// integration (object storage) comes later — see docs/DECISIONS.md.
+model MemberDocument {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id])
+
+  type      MemberDocumentType
+  fileName  String
+  fileUrl   String
+  mimeType  String?
+  sizeBytes Int?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  @@index([organizationId, memberId])
+  @@map("member_document")
+}
+
+enum MemberConsentType {
+  waiver
+  terms_and_conditions
+  marketing_communication
+  data_processing
+  photo_video_usage
+  health_data_processing
+}
+
+// One row per consent event (C1 "consent records and date/time of
+// acceptance", C4 "manage consent withdrawal"). Withdrawal sets
+// revokedAt on the granted row rather than deleting it, so the acceptance
+// history stays intact.
+model MemberConsent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  memberId       String
+  member         Member       @relation(fields: [memberId], references: [id])
+
+  type      MemberConsentType
+  granted   Boolean
+  grantedAt DateTime
+  revokedAt DateTime?
+  ipAddress String?
+  notes     String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  updatedById String?
+
+  @@index([organizationId, memberId])
+  @@map("member_consent")
+}
+
+// Visitor register (Additional Operational Details Checklist — Members &
+// Reception). Deliberately NOT a Member: a visitor has no login, no
+// profile, just a logged entry for front-desk record-keeping.
+model Visitor {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id])
+
+  name         String
+  phone        String?
+  purpose      String?
+  hostMemberId String? // the member they're here to see/referred by, if any
+  checkInAt    DateTime  @default(now())
+  checkOutAt   DateTime?
+  notes        String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  @@index([organizationId, branchId])
+  @@index([organizationId, checkInAt])
+  @@map("visitor")
+}
+
+enum GuestPassType {
+  guest_pass
+  trial_pass
+}
+
+// Guest pass / trial pass (Additional Operational Details Checklist —
+// Members & Reception). Also NOT a Member for the same reason as Visitor;
+// `convertedToMemberId` records the resulting Member if a trial converts.
+model GuestPass {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  branchId       String
+  branch         Branch       @relation(fields: [branchId], references: [id])
+
+  type  GuestPassType
+  name  String
+  phone String?
+  email String?
+
+  issuedByMemberId String?
+  issuedByMember   Member? @relation("GuestPassIssuedByMember", fields: [issuedByMemberId], references: [id])
+  issuedById       String? // staff User.id who issued the pass
+
+  validFrom           DateTime
+  validTo             DateTime
+  usedAt              DateTime?
+  convertedToMemberId String?
+  notes               String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  createdById String?
+  updatedById String?
+
+  @@index([organizationId, branchId])
+  @@index([organizationId, type])
+  @@map("guest_pass")
 }

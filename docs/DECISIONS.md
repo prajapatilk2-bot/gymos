@@ -75,3 +75,100 @@ PGlite/embedded-postgres.** A system Postgres 16 was available and startable
 in this sandbox, so the "only if a Postgres server is unavailable" fallback
 the brief allowed wasn't needed. `tests/unit/global-setup.ts` applies
 committed migrations to `gymos_test` before the suite runs.
+
+## Phase 1.1 — Member Management
+
+**Emergency contact as three plain fields on `Member`, not a separate
+table.** It's a strict 1:1, has no independent lifecycle, and every other
+1:1 Member sub-table in this phase (`MemberHealthDeclaration`) exists
+specifically to put a _permission boundary_ around sensitive data — there's
+no such boundary need for an emergency contact name/phone/relationship, so
+a join only adds a query.
+
+**`MemberHealthDeclaration` is a separate table, and its AuditLog entries
+use `entityType: "MemberHealthDeclaration"` instead of `"Member"`.** C1
+calls out health/injury data for "restricted access" specifically; keeping
+it in its own table means an ordinary `members.view` Prisma query never
+even selects the columns. The same boundary has to hold for the C3
+activity timeline, though — `getMemberTimeline` filters AuditLog by
+`entityType`, and only includes `"MemberHealthDeclaration"` when the caller
+also holds `sensitive.health.view`. Every other member-related sub-entity
+(`MemberDocument`, `MemberConsent`, branch transfers, merges, ...) is
+logged with `entityType: "Member"` and `entityId: <memberId>` — even though
+the row that actually changed has its own id — specifically so the
+timeline query is one simple `entityType in (...), entityId = memberId`
+filter instead of a union across every sub-table's own id space.
+
+**Member ID (`"GM-0001"`) and the matching card number come from a single
+incrementing `Organization.memberSequence` column, not a separate counter
+table.** `UPDATE organization SET "memberSequence" = "memberSequence" + 1`
+is a single atomic statement under Postgres's row-level locking, so
+concurrent registrations can't collide — same guarantee a dedicated
+sequence table would give, without a migration-visible new table for one
+integer.
+
+**Duplicate detection blocks creation by default; the caller must pass
+`allowDuplicate: true` to proceed.** C2 asks for "duplicate detection,
+merge and data validation" — rather than a silent warning a caller could
+ignore, `createMember` throws `DuplicateMemberError` (with the matches) so
+the UI has to show them and get an explicit "create anyway" before a true
+duplicate is created. Already-approved merges then clean up any that slip
+through.
+
+**Suspend/unsuspend and merge go through `ApprovalRequest`, deactivate and
+branch transfer don't.** CLAUDE.md calls out "manual attendance overrides,
+discounts, winner publication, etc." as approval-worthy; the brief
+explicitly named suspend and merge for this module. Deactivate/reactivate
+and branch transfer are reversible, routine front-desk actions with their
+own audit trail, so gating them behind a second approver would just slow
+down ordinary operations for no real safety gain.
+
+**`decideApprovalRequest` (generic, Phase 0) only flips the request's own
+status — it never touches the member.** Approving a `member_suspend` or
+`member_merge` request is a two-step wrapper in
+`members/service.ts` (`decideMemberApprovalRequest`): call the generic
+decide function, then apply the actual Member change only if the result
+came back `approved`. This keeps the generic approvals service module-
+agnostic (it has no idea what a `member_suspend` payload means) while
+letting the Members module decide what "approved" means for its own
+request types. It's also the first real consumer of the generic workflow,
+so it adds a `members.approve`-gated `GET` (`listMemberApprovalRequests`)
+rather than reusing `GET /api/v1/approval-requests`, which Phase 0 gated
+behind `admin.approve` only — a module-specific approver (e.g. a branch
+manager with `members.approve` but not `admin.approve`) couldn't see their
+own pending requests through that endpoint. A follow-up session should
+still fix the shared endpoint itself, per the TODO already in
+`docs/PROGRESS.md` Session 2.
+
+**Visitor register and guest/trial passes are their own tables, not
+`Member` rows with a flag.** Both are explicitly "lightweight" in the
+brief — no login, no profile, no C1 field set — and giving them a
+`Member` row would mean either nullable-everything on `Member` or fake
+placeholder values just to satisfy required fields. `GuestPass` does carry
+a `convertedToMemberId` so a trial that turns into a real signup is
+traceable back to the pass that started it.
+
+**Hand-rolled CSV encode/decode (`members/csv.ts`) instead of a dependency.**
+The format needed — comma-separated, double-quote escaping, embedded
+commas/newlines/quotes — is about 60 lines either way; adding a package for
+it isn't worth the dependency for one module's bulk import/export.
+
+**Bulk CSV import creates rows one at a time (not in a transaction), and
+keeps going past a bad row.** `importMembersCsv` returns a per-row
+created/skipped_duplicate/error result so the caller can see exactly which
+rows need fixing, instead of an all-or-nothing import where one malformed
+row discards an otherwise-good batch.
+
+**Directory PDF export is "print the directory page," not a server-side
+PDF library** — same approach as the member ID card. Both are the kind of
+one-page printable view a browser's own print-to-PDF already handles well;
+a PDF generation dependency can be layered on later if an unattended/
+scheduled export is ever needed (see Module T, Phase 5.2).
+
+**`playwright.config.ts`'s `expect.timeout` raised from the 5s default to
+15s.** Unrelated to this module's business logic: Next dev (Turbopack)
+compiles each route on first visit, and the login → dashboard smoke test's
+first navigation in a freshly-started dev server now sometimes exceeds 5s
+simply because there are more routes in the app for Turbopack's dev
+manifest to account for. Confirmed by running `test:e2e` against a cold
+`.next` cache repeatedly before and after the change.
