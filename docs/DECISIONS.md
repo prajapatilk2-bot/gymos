@@ -233,10 +233,43 @@ for this member," no AuditLog-diffing required to reconstruct past cycles.
 Closing out the superseded row needs no new status value: upgrade/
 downgrade/transfer set its `expiryDate` to the cutover moment (usually
 "now"), and it then simply derives as "expired" — consistent with the
-"expired is derived" design above. Renewal is the one case where the old
-row doesn't need touching at all: `newStart = max(now, old.expiryDate)` is
-never _before_ `old.expiryDate`, so the old row already derives correctly
-with no write.
+"expired is derived" design above.
+
+> **Correction (bug found in review, fixed the same session):** the
+> paragraph above originally claimed renewal was "the one case where the
+> old row doesn't need touching at all" because `newStart` is never
+> _before_ `old.expiryDate`. That reasoning only covers the late-renewal
+> branch. It missed that `renewMembership` never closed out the old row's
+> **benefit counters** (`ptSessionsRemaining`/`groupClassesRemaining`/
+> `guestPassesRemaining`), which is a real bug independent of the status
+> question: without a write, a member who renews early could spend the
+> same PT sessions/classes/guest passes from both the old and new row
+> during the overlap window. `renewMembership` now mirrors
+> `changeMembershipPackage` and updates the old row (`expiryDate: newStart`,
+> all three counters zeroed, audited) right after creating the new one.
+>
+> What the original paragraph got right, and what's worth stating
+> explicitly now: for an **early** renewal, `newStart` equals the old row's
+> unchanged `expiryDate` by construction, so that old row correctly keeps
+> deriving `"active"` until that date — the member hasn't lost access
+> early, they've pre-paid for the next cycle, and there genuinely is no
+> gap or overlap to create. Setting it to `now` instead (to force an
+> immediate "expired" read) would be wrong — it would carve out a coverage
+> gap for days the member already paid for. The two real, user-visible
+> symptoms this left behind were (1) the double-spendable benefit counters
+> above, now fixed, and (2) `listMembershipsNeedingReminder` re-prompting a
+> member to renew a membership they'd already renewed, because it only
+> ever filtered on raw `expiryDate` falling in the reminder window with no
+> awareness of lineage. That query now also excludes any membership with a
+> `renewedTo` successor (`renewedTo: { none: {} }`), regardless of where
+> its `expiryDate` falls. Directory/report counts of "active memberships"
+> can still show both the old (legitimately active until its boundary) and
+> the new (already-created but not yet started) row as `"active"`
+> simultaneously during that overlap window — `deriveMembershipStatus`
+> never considers `startDate`, only `expiryDate`/`status`. That's a
+> separate, pre-existing gap (an "upcoming, not yet started" derived state
+> would need its own schema/UI work) and is intentionally left for a
+> follow-up rather than folded into this fix.
 
 **Renew date math: `newStart = max(now, currentExpiry)`.** Renewing before
 expiry starts the new cycle exactly when the old one ends (no gap, no

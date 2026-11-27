@@ -362,3 +362,55 @@ membership API route and page).
   shared "member picker" component exists yet — worth extracting once a
   third place needs the same search-and-select UI (likely Module B's
   enquiry-to-member conversion in Phase 1.5).
+
+## Session 5 — `renewMembership` predecessor close-out bug fix
+
+Bug found in review of Phase 1.2: `renewMembership`
+(`src/server/modules/memberships/service.ts`) created the new `Membership`
+row correctly but never closed out the old one, unlike
+`changeMembershipPackage` a few functions below it which does. See the
+correction appended to the "Phase 1.2" entry in `docs/DECISIONS.md` for the
+full reasoning (including why the old row legitimately keeps reading
+`"active"` through an early renewal's remaining window, and why that's
+correct, not a bug).
+
+- `renewMembership` now updates the old `current` row right after creating
+  `created`: `expiryDate: newStart`, `ptSessionsRemaining`/
+  `groupClassesRemaining`/`guestPassesRemaining` all zeroed, audited —
+  mirroring `changeMembershipPackage`'s predecessor-closing pattern. Fixes
+  a real double-spend: before this, a member renewing early could draw PT
+  sessions/classes/guest passes from both the old and new row during the
+  overlap window. `status` is deliberately left untouched (derived-status
+  convention, unchanged).
+- `listMembershipsNeedingReminder` now excludes any membership with a
+  `renewedTo` successor (`renewedTo: { none: {} }`), so an
+  already-renewed membership stops being surfaced as "expiring soon" —
+  its raw `expiryDate` can still fall inside the reminder window after an
+  early renewal (it's unchanged, by construction), so filtering on
+  `expiryDate` alone wasn't enough.
+- `tests/unit/memberships.test.ts`: extended both the "renewing before
+  expiry" and "renewing after expiry" tests to assert the *old* row's
+  state (not just the new row's) — benefit counters zeroed in both cases,
+  derived status `"active"` for early renewal (legitimately — see above)
+  and still `"expired"` for late renewal (unchanged by the fix). Added a
+  new test asserting `listMembershipsNeedingReminder` drops an
+  already-renewed membership from its results.
+- Verified locally: `pnpm lint`, `pnpm typecheck`, `pnpm test` (67/67
+  passed), `pnpm build` — all clean.
+
+### Deliberately not done this session
+
+- **"Upcoming, not yet started" derived status.** `deriveMembershipStatus`
+  only looks at `status`/`expiryDate`, never `startDate` — so right after
+  an early renewal, the new row already reads `"active"` even though its
+  benefits haven't started yet, and directory/report counts of "active
+  memberships" can briefly show both the old and new row as active. Fixing
+  this needs a new derived state (schema + UI work across every place that
+  reads `derivedStatus`), out of scope for this bug-fix session. Flagged in
+  `docs/DECISIONS.md`.
+- The same "stale raw `expiryDate` inside the reminder window right after
+  a transition" gap plausibly also affects `listMembershipsNeedingReminder`
+  for upgrade/downgrade/transfer in the first moments after a cutover (their
+  old row's `expiryDate` is set to `now`, which can itself still be inside
+  the window). Not fixed here — only the renewal case was in scope — but
+  worth a follow-up look.
