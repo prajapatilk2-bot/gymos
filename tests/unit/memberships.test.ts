@@ -17,6 +17,7 @@ import {
   deriveMembershipStatus,
   extendMembership,
   listMemberships,
+  listMembershipsNeedingReminder,
   MembershipError,
   reactivateMembership,
   renewMembership,
@@ -78,6 +79,7 @@ async function setupMemberAndPackage(
     freezeMaxCount?: number;
     freezeMaxDaysPerYear?: number;
     freezeMinNoticeDays?: number;
+    ptSessionsIncluded?: number;
   } = {},
 ) {
   const org = await createOrganization();
@@ -102,6 +104,7 @@ async function setupMemberAndPackage(
     freezeMaxCount: overrides.freezeMaxCount,
     freezeMaxDaysPerYear: overrides.freezeMaxDaysPerYear,
     freezeMinNoticeDays: overrides.freezeMinNoticeDays,
+    ptSessionsIncluded: overrides.ptSessionsIncluded,
   });
 
   return { org, branch, ctx, member, pkg };
@@ -282,6 +285,7 @@ describe("memberships.renewMembership — date math", () => {
     const { ctx, member, pkg, branch } = await setupMemberAndPackage({
       durationUnit: "month",
       durationValue: 1,
+      ptSessionsIncluded: 3,
     });
     const membership = await createMembership(ctx, {
       memberId: member.id,
@@ -295,9 +299,28 @@ describe("memberships.renewMembership — date math", () => {
       new Date(membership.expiryDate).getTime(),
     );
     expect(renewed.renewedFromId).toBe(membership.id);
+
+    // Regression: the OLD row must be closed out — expiryDate pinned to the
+    // new row's startDate (so it can never drift into a gap/overlap if the
+    // date math above it changes) and benefits zeroed (so the member can't
+    // spend the same PT sessions/classes/guest passes from both rows during
+    // the remaining window). For an early renewal like this one, newStart
+    // equals the old row's original expiryDate, so it legitimately still
+    // derives "active" until that date — the member hasn't lost access
+    // early, they've just pre-paid for the next cycle. See docs/DECISIONS.md.
+    const oldAfterRenewal = await prisma.membership.findUniqueOrThrow({
+      where: { id: membership.id },
+    });
+    expect(deriveMembershipStatus(oldAfterRenewal)).toBe("active");
+    expect(oldAfterRenewal.expiryDate.getTime()).toBe(
+      new Date(renewed.startDate).getTime(),
+    );
+    expect(oldAfterRenewal.ptSessionsRemaining).toBe(0);
+    expect(oldAfterRenewal.groupClassesRemaining).toBe(0);
+    expect(oldAfterRenewal.guestPassesRemaining).toBe(0);
   });
 
-  it("renewing after expiry starts the new cycle today, not backdated", async () => {
+  it("renewing after expiry starts the new cycle today, not backdated, and the old row still reads as expired", async () => {
     const { ctx, member, pkg, branch } = await setupMemberAndPackage({
       durationUnit: "day",
       durationValue: 1,
@@ -322,6 +345,42 @@ describe("memberships.renewMembership — date math", () => {
     expect(renewedStart).toBeGreaterThanOrEqual(before - 1000);
     expect(renewedStart).toBeLessThanOrEqual(after + 1000);
     expect(renewedStart).not.toBe(pastExpiry.getTime());
+
+    // This case already derived "expired" before the fix (expiryDate was
+    // already in the past); confirm the fix doesn't change that outcome.
+    const oldAfterRenewal = await prisma.membership.findUniqueOrThrow({
+      where: { id: membership.id },
+    });
+    expect(deriveMembershipStatus(oldAfterRenewal)).toBe("expired");
+  });
+
+  it("listMembershipsNeedingReminder does not surface an already-renewed (closed-out) membership", async () => {
+    const { ctx, member, pkg, branch } = await setupMemberAndPackage({
+      durationUnit: "day",
+      durationValue: 2,
+    });
+    const membership = await createMembership(ctx, {
+      memberId: member.id,
+      packageId: pkg.id,
+      branchId: branch.id,
+    });
+    // Within the reminder window (expiring in ~2 days, window is 3) before renewal.
+    const before = await listMembershipsNeedingReminder(ctx, {
+      daysBeforeExpiry: 3,
+    });
+    expect(before.some((m) => m.id === membership.id)).toBe(true);
+
+    const renewed = await renewMembership(ctx, membership.id, {});
+
+    const after = await listMembershipsNeedingReminder(ctx, {
+      daysBeforeExpiry: 3,
+    });
+    expect(after.some((m) => m.id === membership.id)).toBe(false);
+    // The new cycle's own expiry (~4 days out: old 2-day expiry + new 2-day
+    // duration, since this is an early renewal) falls outside the 3-day
+    // window, so it isn't "expiring soon" either — unrelated to the fix,
+    // just confirms the new row wasn't accidentally picked up instead.
+    expect(after.some((m) => m.id === renewed.id)).toBe(false);
   });
 });
 

@@ -375,6 +375,11 @@ export async function listMembershipsNeedingReminder(
       deletedAt: null,
       status: { not: "cancelled" },
       expiryDate: { gte: windowStart, lte: windowEnd },
+      // A membership that has already been renewed keeps its original
+      // expiryDate (set to the new row's startDate, which can still fall
+      // inside the reminder window for an early renewal) — exclude it so a
+      // member who has already renewed doesn't get reminded to renew again.
+      renewedTo: { none: {} },
     },
     orderBy: { expiryDate: "asc" },
     include: {
@@ -436,6 +441,23 @@ export async function renewMembership(
       ),
       renewedFromId: current.id,
       createdById: ctx.userId,
+      updatedById: ctx.userId,
+    },
+  });
+
+  // Close out the predecessor at the exact moment the new cycle starts —
+  // never "now", since renewing early must leave no gap or overlap between
+  // the old row's expiry and the new row's startDate. This mirrors
+  // changeMembershipPackage's handling of its predecessor below; without
+  // it, a membership renewed before expiry would derive as "active" on
+  // BOTH rows until the old row's original expiry date naturally arrived.
+  await prisma.membership.update({
+    where: { id: current.id },
+    data: {
+      expiryDate: newStart,
+      ptSessionsRemaining: 0,
+      groupClassesRemaining: 0,
+      guestPassesRemaining: 0,
       updatedById: ctx.userId,
     },
   });
