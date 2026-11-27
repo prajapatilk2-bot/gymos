@@ -389,7 +389,7 @@ correct, not a bug).
   early renewal (it's unchanged, by construction), so filtering on
   `expiryDate` alone wasn't enough.
 - `tests/unit/memberships.test.ts`: extended both the "renewing before
-  expiry" and "renewing after expiry" tests to assert the *old* row's
+  expiry" and "renewing after expiry" tests to assert the _old_ row's
   state (not just the new row's) — benefit counters zeroed in both cases,
   derived status `"active"` for early renewal (legitimately — see above)
   and still `"expired"` for late renewal (unchanged by the fix). Added a

@@ -365,12 +365,16 @@ describe("memberships.renewMembership — date math", () => {
       branchId: branch.id,
     });
     // Within the reminder window (expiring in ~2 days, window is 3) before renewal.
-    const before = await listMembershipsNeedingReminder(ctx, { daysBeforeExpiry: 3 });
+    const before = await listMembershipsNeedingReminder(ctx, {
+      daysBeforeExpiry: 3,
+    });
     expect(before.some((m) => m.id === membership.id)).toBe(true);
 
     const renewed = await renewMembership(ctx, membership.id, {});
 
-    const after = await listMembershipsNeedingReminder(ctx, { daysBeforeExpiry: 3 });
+    const after = await listMembershipsNeedingReminder(ctx, {
+      daysBeforeExpiry: 3,
+    });
     expect(after.some((m) => m.id === membership.id)).toBe(false);
     // The new cycle's own expiry (~4 days out: old 2-day expiry + new 2-day
     // duration, since this is an early renewal) falls outside the 3-day
